@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<!--
+Created using JS Bin
+http://jsbin.com
+
+Copyright (c) 2026 by anonymous (http://jsbin.com/xixavoqupe/1/edit)
+
+Released under the MIT license: http://jsbin.mit-license.org
+-->
+<meta name="robots" content="noindex">
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Galaxia de Amor 3D - Edición Extrema Fluid</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600&family=Playfair+Display:ital,wght@1,600;1,800&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        html, body {
+            overflow: hidden;
+            background-color: #030008;
+            width: 100%;
+            height: 100%;
+            font-family: 'Montserrat', sans-serif;
+        }
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+        #instruction {
+            position: absolute;
+            bottom: 35px;
+            width: 100%;
+            text-align: center;
+            color: rgba(255, 255, 255, 0.35);
+            font-size: 10px;
+            pointer-events: none;
+            user-select: none;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            z-index: 10;
+            text-shadow: 0 0 15px rgba(0,0,0,0.9);
+        }
+        #labels-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
+        }
+        /* OPTIMIZACIÓN CLAVE: Usamos transform base y will-change para activar aceleración por GPU */
+        .love-message, .premium-love-message, .cachetona-love-message {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            white-space: nowrap;
+            will-change: transform, opacity;
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+        
+        .love-message {
+            color: #ffffff;
+            font-weight: 400;
+            font-size: 11px;
+            background: rgba(255, 20, 147, 0.06); 
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            padding: 6px 14px;
+            border-radius: 30px;
+            border: 1px solid rgba(255, 20, 147, 0.2);
+            letter-spacing: 1px;
+        }
+
+        /* MENSAJE CENTRAL (Obsidiana y Oro) */
+        .premium-love-message {
+            color: #ffffff;
+            font-family: 'Playfair Display', serif;
+            font-style: italic;
+            font-weight: 800;
+            font-size: 19px;
+            background: linear-gradient(135deg, rgba(20, 20, 20, 0.85), rgba(10, 10, 10, 0.95));
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            padding: 14px 32px;
+            border-radius: 40px;
+            border: 2px solid rgba(255, 215, 0, 0.75);
+            box-shadow: 0 0 50px rgba(255, 140, 0, 0.5), inset 0 0 15px rgba(255, 215, 0, 0.2);
+            z-index: 7;
+        }
+
+        /* NUEVO MENSAJE ESQUINA (Cristal de Oro Rosa Elegante) */
+        .cachetona-love-message {
+            color: #ffffff;
+            font-family: 'Playfair Display', serif;
+            font-style: italic;
+            font-weight: 600;
+            font-size: 15px;
+            background: rgba(28, 8, 18, 0.75);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            padding: 10px 24px;
+            border-radius: 30px;
+            border: 1.5px solid rgba(255, 182, 193, 0.6); 
+            box-shadow: 0 0 35px rgba(255, 20, 147, 0.35), inset 0 0 10px rgba(255, 182, 193, 0.1);
+            z-index: 6;
+            letter-spacing: 0.5px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+    <div id="instruction">Órbita con el mouse • Haz un zoom profundo hacia el centro</div>
+    <div id="labels-container"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        const CONFIG = {
+            count: 42000, // Optimizado ligeramente para asegurar rendimiento fluido en móviles y laptops
+            size: 0.036,  
+            lovePhrases: [
+                "Te amo", "Eres mi universo entero", "Contigo el mundo es mejor", 
+                "Eres mi estrella favorita", "Cada día te elijo a ti", "Haces latir mi corazón", 
+                "Mi lugar seguro", "Gracias por existir", "Tú y yo, siempre", "Amor infinito"
+            ]
+        };
+
+        let scene, camera, renderer, controls, galaxyPoints, messageStarsMesh;
+        let messageStarsData = [];
+        let specialStarData = null; 
+        let specialPremiumMessageData = null; 
+        let cachetonaStarData = null;
+        let cachetonaMessageData = null;
+        
+        let shootingStars = [];
+        const maxShootingStars = 3;
+
+        // Caché global del viewport para evitar Layout Thrashing
+        let windowWidth = window.innerWidth;
+        let windowHeight = window.innerHeight;
+
+        const clock = new THREE.Clock();
+
+        function createCircularGlowTexture(baseColor = 'rgba(255, 20, 147, 0.3)') {
+            const canvas = document.createElement('canvas');
+            canvas.width = 32; canvas.height = 32;
+            const ctx = canvas.getContext('2d');
+            const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+            gradient.addColorStop(0.2, 'rgba(255, 255, 255, 0.95)');
+            gradient.addColorStop(0.5, baseColor);
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = gradient; ctx.fillRect(0, 0, 32, 32);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        function init() {
+            const container = document.getElementById('canvas-container');
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2('#030008', 0.07);
+
+            camera = new THREE.PerspectiveCamera(60, windowWidth / windowHeight, 0.1, 100);
+            camera.position.set(0, 3.2, 6.2);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            renderer.setSize(windowWidth, windowHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            container.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxDistance = 9.5;
+            controls.minDistance = 0.7;
+
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(CONFIG.count * 3);
+            const colors = new Float32Array(CONFIG.count * 3);
+
+            const colorCore = new THREE.Color('#ffffff');
+            const colorInside = new THREE.Color('#ff006e');  
+            const colorOutside = new THREE.Color('#6a00f4'); 
+
+            for (let i = 0; i < CONFIG.count; i++) {
+                const i3 = i * 3;
+                const t = (Math.random() - 0.5) * Math.PI * 2;
+                
+                let hX = 16 * Math.pow(Math.sin(t), 3) * 0.13;
+                let hZ = -(13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t)) * 0.13;
+                const rFactor = Math.pow(Math.random(), 1.6);
+                
+                if (i < CONFIG.count * 0.8) {
+                    positions[i3]     = hX * (0.15 + rFactor * 0.85) + (Math.random() - 0.5) * 0.08;
+                    positions[i3 + 1] = (Math.random() - 0.5) * 0.22 * (1.2 - rFactor);
+                    positions[i3 + 2] = hZ * (0.15 + rFactor * 0.85) + (Math.random() - 0.5) * 0.08;
+                } else {
+                    const radius = 0.8 + Math.random() * 3.2;
+                    positions[i3]     = Math.cos(t + radius * 0.6) * radius + (Math.random() - 0.5) * 0.25;
+                    positions[i3 + 1] = (Math.random() - 0.5) * 0.45;
+                    positions[i3 + 2] = Math.sin(t + radius * 0.6) * radius + (Math.random() - 0.5) * 0.25;
+                }
+
+                const mixedColor = colorInside.clone();
+                mixedColor.lerp(colorOutside, rFactor * 0.55);
+                
+                const distanceToCenter = Math.sqrt(positions[i3]*positions[i3] + positions[i3+2]*positions[i3+2]);
+                if (distanceToCenter < 0.65) {
+                    mixedColor.lerp(colorCore, 1.0 - (distanceToCenter / 0.65));
+                }
+
+                colors[i3]     = mixedColor.r;
+                colors[i3 + 1] = mixedColor.g;
+                colors[i3 + 2] = mixedColor.b;
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            const starTexture = createCircularGlowTexture('rgba(255, 20, 147, 0.2)');
+
+            const material = new THREE.PointsMaterial({
+                size: CONFIG.size,
+                sizeAttenuation: true,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.85,
+                map: starTexture
+            });
+
+            galaxyPoints = new THREE.Points(geometry, material);
+            scene.add(galaxyPoints);
+
+            initShootingStars();
+            createMessages(starTexture);
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function initShootingStars() {
+            const lineMat = new THREE.LineBasicMaterial({
+                color: 0xffb7c5, transparent: true, opacity: 0, blending: THREE.AdditiveBlending
+            });
+            for(let i=0; i<maxShootingStars; i++) {
+                const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,0)]);
+                const line = new THREE.Line(lineGeo, lineMat.clone());
+                scene.add(line);
+                shootingStars.push({ mesh: line, active: false, speed: 0, dx: 0, dy: 0, dz: 0, progress: 0 });
+            }
+        }
+
+        function triggerShootingStar() {
+            const star = shootingStars.find(s => !s.active);
+            if (!star) return;
+            star.active = true; star.progress = 0;
+            star.speed = 0.04 + Math.random() * 0.03;
+            star.dx = -0.15 - Math.random() * 0.1; star.dy = -0.2 - Math.random() * 0.1; star.dz = (Math.random() - 0.5) * 0.05;
+            star.pos = new THREE.Vector3((Math.random() - 0.5) * 7, 3 + Math.random() * 1.5, (Math.random() - 0.5) * 5);
+        }
+
+        function updateShootingStars() {
+            if(Math.random() < 0.012) triggerShootingStar();
+            shootingStars.forEach(s => {
+                if(!s.active) return;
+                s.progress += s.speed;
+                s.pos.x += s.dx; s.pos.y += s.dy; s.pos.z += s.dz;
+                s.mesh.geometry.setFromPoints([s.pos.clone(), s.pos.clone().sub(new THREE.Vector3(s.dx*1.8, s.dy*1.8, s.dz*1.8))]);
+                if(s.progress < 0.2) s.mesh.material.opacity = s.progress * 5;
+                else if(s.progress > 0.8) s.mesh.material.opacity = (1 - s.progress) * 5;
+                else s.mesh.material.opacity = 1;
+                if(s.progress >= 1.0) { s.active = false; s.mesh.material.opacity = 0; }
+            });
+        }
+
+        function createMessages(starTexture) {
+            messageStarsMesh = new THREE.Group();
+            const labelsContainer = document.getElementById('labels-container');
+            labelsContainer.innerHTML = ''; 
+            const count = CONFIG.lovePhrases.length;
+
+            CONFIG.lovePhrases.forEach((phrase, i) => {
+                const t = (i / count) * Math.PI * 2;
+                const hX = 16 * Math.pow(Math.sin(t), 3) * 0.13 * 0.85;
+                const hZ = -(13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t)) * 0.13 * 0.85;
+                const y = (Math.random() - 0.5) * 0.05;
+
+                const div = document.createElement('div');
+                div.className = 'love-message';
+                div.textContent = phrase;
+                labelsContainer.appendChild(div);
+
+                const starGeo = new THREE.BufferGeometry();
+                starGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([hX, y, hZ]), 3));
+                const starMat = new THREE.PointsMaterial({ color: 0xffb7c5, size: 0.14, transparent: true, blending: THREE.AdditiveBlending, map: starTexture });
+                const starPoint = new THREE.Points(starGeo, starMat);
+                
+                messageStarsData.push({ position: new THREE.Vector3(hX, y, hZ), element: div });
+                messageStarsMesh.add(starPoint);
+            });
+            scene.add(messageStarsMesh);
+
+            // PARTÍCULA CENTRAL (Latido Naranja Premium)
+            const specialStarGeo = new THREE.BufferGeometry();
+            specialStarGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3));
+            const intenseOrangeTexture = createCircularGlowTexture('rgba(255, 130, 0, 0.95)');
+            const specialStarMat = new THREE.PointsMaterial({ color: 0xff7a00, size: 0.65, transparent: true, blending: THREE.AdditiveBlending, map: intenseOrangeTexture });
+            const specialStarMesh = new THREE.Points(specialStarGeo, specialStarMat);
+            specialStarData = { position: new THREE.Vector3(0, 0, 0), material: specialStarMat };
+            scene.add(specialStarMesh);
+
+            // CÁPSULA CENTRAL
+            const specialDiv = document.createElement('div');
+            specialDiv.className = 'premium-love-message';
+            specialDiv.textContent = "Estas en el lugar mas importante de mi corazon";
+            labelsContainer.appendChild(specialDiv);
+            specialPremiumMessageData = { element: specialDiv };
+
+            // --- NUEVO: Partícula de la Esquina de "Cachetona" ---
+            // Ubicación calculada en el lóbulo izquierdo superior del corazón (t ≈ -0.75)
+            const tCorner = -0.78;
+            const cX = 16 * Math.pow(Math.sin(tCorner), 3) * 0.13 * 1.05;
+            const cZ = -(13 * Math.cos(tCorner) - 5 * Math.cos(2*tCorner) - 2 * Math.cos(3*tCorner) - Math.cos(4*tCorner)) * 0.13 * 1.05;
+            const cY = 0.25; 
+
+            const cachetonaStarGeo = new THREE.BufferGeometry();
+            cachetonaStarGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([cX, cY, cZ]), 3));
+            const platinumPinkTexture = createCircularGlowTexture('rgba(255, 182, 193, 0.95)');
+            const cachetonaStarMat = new THREE.PointsMaterial({ color: 0xffb6c1, size: 0.35, transparent: true, blending: THREE.AdditiveBlending, map: platinumPinkTexture });
+            const cachetonaStarMesh = new THREE.Points(cachetonaStarGeo, cachetonaStarMat);
+            
+            cachetonaStarData = { position: new THREE.Vector3(cX, cY, cZ), material: cachetonaStarMat };
+            messageStarsMesh.add(cachetonaStarMesh); // Se añade al grupo rotativo para que orbite en su esquina exacta
+
+            // CÁPSULA "CACHETONA" ELEGANTE
+            const cachetonaDiv = document.createElement('div');
+            cachetonaDiv.className = 'cachetona-love-message';
+            cachetonaDiv.textContent = "Te amo con mi vida cachetona";
+            labelsContainer.appendChild(cachetonaDiv);
+            cachetonaMessageData = { position: new THREE.Vector3(cX, cY, cZ), element: cachetonaDiv };
+        }
+
+        function updateLabels() {
+            const tempV = new THREE.Vector3();
+
+            // Mensajes normales en órbita
+            messageStarsData.forEach((data) => {
+                tempV.copy(data.position).applyAxisAngle(new THREE.Vector3(0, 1, 0), messageStarsMesh.rotation.y);
+                const distance = camera.position.distanceTo(tempV);
+
+                if (distance < 4.5 && distance > 1.3) { 
+                    tempV.project(camera);
+                    const x = (tempV.x * 0.5 + 0.5) * windowWidth;
+                    const y = (tempV.y * -0.5 + 0.5) * windowHeight - 18;
+                    data.element.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -50%) scale(1)`;
+                    data.element.style.opacity = '1';
+                } else {
+                    data.element.style.opacity = '0';
+                }
+            });
+
+            // Mensaje Central Premium (Obsidiana)
+            if (specialPremiumMessageData) {
+                tempV.set(0, 0, 0); 
+                const distance = camera.position.distanceTo(tempV);
+                if (distance < 3.2) { 
+                    tempV.project(camera);
+                    const x = (tempV.x * 0.5 + 0.5) * windowWidth;
+                    const y = (tempV.y * -0.5 + 0.5) * windowHeight;
+                    const scale = 1 + (3.2 - distance) * 0.22;
+                    specialPremiumMessageData.element.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -50%) scale(${scale})`;
+                    specialPremiumMessageData.element.style.opacity = '1';
+                } else {
+                    specialPremiumMessageData.element.style.opacity = '0';
+                }
+            }
+
+            // NUEVO: Mensaje de "Cachetona" en la esquina con balanceo fluido
+            if (cachetonaMessageData) {
+                tempV.copy(cachetonaMessageData.position).applyAxisAngle(new THREE.Vector3(0, 1, 0), messageStarsMesh.rotation.y);
+                const distance = camera.position.distanceTo(tempV);
+
+                if (distance < 5.0 && distance > 0.8) {
+                    tempV.project(camera);
+                    const x = (tempV.x * 0.5 + 0.5) * windowWidth;
+                    const y = (tempV.y * -0.5 + 0.5) * windowHeight - 30; // Un poco más arriba de su estrella
+                    cachetonaMessageData.element.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -50%) scale(1)`;
+                    cachetonaMessageData.element.style.opacity = '1';
+                } else {
+                    cachetonaMessageData.element.style.opacity = '0';
+                }
+            }
+        }
+
+        function onWindowResize() {
+            windowWidth = window.innerWidth;
+            windowHeight = window.innerHeight;
+            camera.aspect = windowWidth / windowHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(windowWidth, windowHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (controls) controls.update();
+
+            const elapsedTime = clock.getElapsedTime();
+            const heartBeat = 1.0 + Math.sin(elapsedTime * 3.5) * 0.04; 
+            const currentRotation = elapsedTime * 0.025;
+
+            if (galaxyPoints) {
+                galaxyPoints.rotation.y = currentRotation;
+                galaxyPoints.scale.set(heartBeat, heartBeat, heartBeat);
+                galaxyPoints.material.size = CONFIG.size * (Math.sin(elapsedTime * 2.0) * 0.05 + 0.98);
+            }
+            if (messageStarsMesh) {
+                messageStarsMesh.rotation.y = currentRotation;
+                messageStarsMesh.scale.set(heartBeat, heartBeat, heartBeat);
+            }
+            if (specialStarData && specialStarData.material) {
+                specialStarData.material.size = 0.65 + Math.sin(elapsedTime * 7.0) * 0.15;
+            }
+            // Animación dedicada de la estrella de la esquina
+            if (cachetonaStarData && cachetonaStarData.material) {
+                cachetonaStarData.material.size = 0.35 + Math.sin(elapsedTime * 5.5) * 0.09;
+            }
+
+            updateShootingStars();
+            updateLabels();
+            
+            if (renderer && scene && camera) renderer.render(scene, camera);
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            init();
+            animate();
+        });
+    </script>
+</body>
+</html>
